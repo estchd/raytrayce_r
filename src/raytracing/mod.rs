@@ -1,14 +1,8 @@
 use std::sync::Arc;
 use rand::{Rng, thread_rng};
-use hit_record::HitRecord;
 use scene::RaytracingScene;
-use crate::{Color, Vec3, WorkContext, WorkData, WorkResult};
-use crate::raytracing::camera::Camera;
+use crate::{Color, WorkContext, WorkData, WorkResult};
 use crate::raytracing::hittable::Hittable;
-use crate::raytracing::hittable::sphere::Sphere;
-use crate::raytracing::materials::dielectric::Dielectric;
-use crate::raytracing::materials::lambertian::Lambertian;
-use crate::raytracing::materials::metal::Metal;
 use crate::raytracing::ray::Ray;
 
 pub mod vector_2d;
@@ -31,6 +25,8 @@ pub const NEAR_ZERO_THRESHOLD: f64 = f64::EPSILON;
 pub struct RaytracingContext {
     pub image_width: u32,
     pub image_height: u32,
+    pub samples_per_pixel: usize,
+    pub max_bounces: usize,
     pub scene: RaytracingScene
 }
 
@@ -61,14 +57,14 @@ pub fn raytracing_work_function(data: RaytracingWorkData, context: &Arc<Raytraci
 
     let mut color = Color::new();
 
-    for _ in 0..SAMPLES_PER_PIXEL {
+    for _ in 0..context.samples_per_pixel {
         let u_offset = rand.gen_range(0.0..1.0);
         let v_offset = rand.gen_range(0.0..1.0);
         let u = (x as f64 + u_offset) / image_width as f64;
         let v = (y as f64 + v_offset) / image_height as f64;
 
         let ray = context.scene.camera.cast_ray(u,v);
-        let new_color = ray_color(&ray, &context.scene, 0);
+        let new_color = ray_color(&ray, &context.scene, context.max_bounces);
         color = Color {
             r: color.r + new_color.r,
             g: color.g + new_color.g,
@@ -77,7 +73,7 @@ pub fn raytracing_work_function(data: RaytracingWorkData, context: &Arc<Raytraci
         };
     }
 
-    let scale = 1.0 / SAMPLES_PER_PIXEL as f32;
+    let scale = 1.0 / context.samples_per_pixel as f32;
 
     let color = Color {
         r: (color.r * scale).sqrt(),
@@ -96,29 +92,27 @@ pub fn raytracing_work_function(data: RaytracingWorkData, context: &Arc<Raytraci
 }
 
 fn ray_color(ray: &Ray, scene: &RaytracingScene, depth: usize) -> Color {
-    if depth >= MAX_BOUNCES {
+    if depth == 0 {
         return Color::new();
     }
 
     if let Some(hit_record) = scene.hit(ray, 0.001, f64::INFINITY) {
-        if let Some(material) = &hit_record.material {
+        return if let Some(material) = &hit_record.material {
             let scattered = material.scatter(&ray, &hit_record);
-                if let Some((attenuation, ray)) = scattered {
-                    let new_color = ray_color(&ray, scene, depth + 1);
+            if let Some((attenuation, ray)) = scattered {
+                let new_color = ray_color(&ray, scene, depth - 1);
 
-                    return Color {
-                        r: attenuation.r * new_color.r,
-                        g: attenuation.g * new_color.g,
-                        b: attenuation.b * new_color.b,
-                        a: 1.0
-                    };
+                Color {
+                    r: attenuation.r * new_color.r,
+                    g: attenuation.g * new_color.g,
+                    b: attenuation.b * new_color.b,
+                    a: 1.0
                 }
-            else {
-                return Color::create(0.0,0.0,0.0,1.0);
+            } else {
+                Color::create(0.0, 0.0, 0.0, 1.0)
             }
-        }
-        else {
-            return Color {
+        } else {
+            Color {
                 r: 0.0,
                 g: 0.0,
                 b: 0.0,

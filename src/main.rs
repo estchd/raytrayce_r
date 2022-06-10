@@ -34,7 +34,7 @@ use raytracing::{RaytracingContext, RaytracingResult, RaytracingWorkData};
 use raytracing::scene::RaytracingScene;
 use workers::Workers;
 use crate::image::save_texture_to_path;
-use crate::raytracing::raytracing_work_function;
+use crate::raytracing::{MAX_BOUNCES, raytracing_work_function, SAMPLES_PER_PIXEL};
 use crate::raytracing::vector_3d::Vec3;
 use crate::workers::{WorkContext, WorkData, WorkResult};
 
@@ -178,6 +178,8 @@ fn main() {
     let raytracing_context = Arc::new(RaytracingContext {
         image_width,
         image_height,
+        samples_per_pixel: SAMPLES_PER_PIXEL,
+        max_bounces: MAX_BOUNCES,
         scene
     });
 
