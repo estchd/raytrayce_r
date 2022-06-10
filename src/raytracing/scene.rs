@@ -17,6 +17,13 @@ pub struct RaytracingScene {
 }
 
 impl RaytracingScene {
+    pub fn new() -> Self {
+        Self {
+            camera: Camera::new(),
+            hittables: vec![]
+        }
+    }
+    
     pub fn create_scene(aspect_ratio: f64) -> Self {
         let mut rand = thread_rng();
 
@@ -80,15 +87,15 @@ impl RaytracingScene {
         let look_at = Vec3::create(0.0,0.0,0.0);
         let focus_distance = 10.0;
 
-        let camera = Camera {
-            position: look_from,
-            look_direction: look_at,
-            up_direction: Vec3::create(0.0, 1.0, 0.0),
-            field_of_view: 20.0,
+        let camera = Camera::create(
+            look_from,
+            look_at,
+            Vec3::create(0.0, 1.0, 0.0),
+            20.0,
             aspect_ratio,
             focus_distance,
-            aperture: 0.01
-        };
+            0.01
+        );
 
         RaytracingScene {
             camera,
