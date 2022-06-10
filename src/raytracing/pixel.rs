@@ -1,5 +1,5 @@
 use image::{Rgba};
-use crate::color::Color;
+use crate::raytracing::color::Color;
 
 #[derive(Copy, Clone)]
 pub struct Pixel<'a> {

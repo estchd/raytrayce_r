@@ -1,6 +1,7 @@
 use windows::Win32::Foundation::{GetLastError, SetLastError, WIN32_ERROR};
 use windows::core::Result;
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct WIN32Error {
 	value: WIN32_ERROR
 }

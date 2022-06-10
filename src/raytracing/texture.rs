@@ -1,6 +1,6 @@
 use std::num::{NonZeroU32};
-use crate::color::Color;
-use crate::pixel::{MutPixel, Pixel};
+use crate::raytracing::color::Color;
+use crate::raytracing::pixel::{MutPixel, Pixel};
 use arrayref::array_ref;
 use arrayref::array_mut_ref;
 
@@ -104,6 +104,14 @@ impl Texture {
 
 	fn get_index_from_coordinates(&self, x: u32, y: u32) -> usize {
 		((y as usize * self.width.get() as usize) + x as usize) * 4
+	}
+
+	pub fn clear(&mut self, color: Color) {
+		for y in 0..self.height.get() {
+			for x in 0..self.width.get() {
+				self.set_pixel(x,y,color);
+			}
+		}
 	}
 }
 

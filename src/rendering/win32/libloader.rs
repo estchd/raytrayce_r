@@ -4,12 +4,12 @@ use ascii::AsciiStr;
 use widestring::{U16CStr};
 use windows::Win32::Foundation::HINSTANCE;
 use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetModuleHandleExA, GetModuleHandleExW, GetModuleHandleW};
-use crate::rendering::windows::errhandlingapi::{get_last_error, set_last_error, WIN32Error};
+use crate::rendering::win32::errhandlingapi::{get_last_error, set_last_error, WIN32Error};
 use windows::core::{PCSTR,PCWSTR};
 use bitflags::bitflags;
 
 pub struct InstanceHandle {
-	value: HINSTANCE
+	pub(crate) value: HINSTANCE
 }
 
 pub fn get_module_handle_a(module_name: Option<&AsciiStr>) -> Result<InstanceHandle, windows::core::Error> {
