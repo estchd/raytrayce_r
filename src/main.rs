@@ -6,10 +6,8 @@ use std::mem::MaybeUninit;
 use std::num::NonZeroU32;
 use std::ptr::copy;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::Instant;
 use ascii::AsciiString;
-use crossbeam::channel::{TryRecvError, unbounded};
 use imgui::{Condition, Context};
 use imgui_dx11_renderer::Renderer;
 use imgui_winit_support::{HiDpiMode, WinitPlatform};
@@ -30,17 +28,15 @@ use crate::rendering::win32::errhandlingapi::get_last_error;
 use raytracing::texture::{Texture, TextureWrapMode};
 use windows::core::Interface;
 use windows::Win32::Graphics::Dxgi::IDXGISwapChain;
-use raytracing::{RaytracingContext, RaytracingResult, RaytracingWorkData};
+use workers_pool::WorkersPool;
+use raytracing::{RaytracingContext, RaytracingWorkData};
 use raytracing::scene::RaytracingScene;
-use workers::Workers;
 use crate::image::save_texture_to_path;
-use crate::raytracing::{MAX_BOUNCES, raytracing_work_function, SAMPLES_PER_PIXEL};
+use crate::raytracing::{MAX_BOUNCES, RaytracingWorker, SAMPLES_PER_PIXEL};
 use crate::raytracing::vector_3d::Vec3;
-use crate::workers::{WorkContext, WorkData, WorkResult};
 
 mod rendering;
 mod image;
-mod workers;
 mod raytracing;
 
 pub const CLASS_NAME: &str = "raytrace_window_class";
@@ -160,7 +156,7 @@ fn main() {
     //fill_texture_test(&mut texture);
 
     let mut last_frame = Instant::now();
-    let mut current_computation_workers: Option<Workers<Arc<RaytracingContext>, RaytracingWorkData, RaytracingResult>> = None;
+    let mut current_computation_workers: Option<WorkersPool<RaytracingWorker>> = None;
     let mut commissioned_count: usize = 0;
     let mut completed_count: usize = 0;
     let mut imgui_state = ImguiState {
@@ -175,13 +171,13 @@ fn main() {
 
     let scene = RaytracingScene::create_scene(aspect_ratio);
     
-    let raytracing_context = Arc::new(RaytracingContext {
+    let raytracing_context = RaytracingContext {
         image_width,
         image_height,
         samples_per_pixel: SAMPLES_PER_PIXEL,
         max_bounces: MAX_BOUNCES,
         scene
-    });
+    };
 
     winit_event_loop.run(move |event, _window_target, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -568,17 +564,12 @@ fn draw_imgui(imgui_state: &mut ImguiState, window: &Window, imgui_context: &mut
     }
 }
 
-fn start_rendering(texture: &mut Texture, commissioned_count: &mut usize, width: u32, height: u32, context: Arc<RaytracingContext>, workers: &mut Option<Workers<Arc<RaytracingContext>, RaytracingWorkData, RaytracingResult>>) {
-    if let Some(workers) = workers {
-        workers.shut_down().unwrap();
-    }
+fn start_rendering(texture: &mut Texture, commissioned_count: &mut usize, width: u32, height: u32, context: RaytracingContext, workers: &mut Option<WorkersPool<RaytracingWorker>>) {
     *workers = None;
 
     texture.clear(Color::create(0.0,0.0,0.0,1.0));
 
-    let mut new_workers = Workers::create(context);
-    let function_box = Box::new(raytracing_work_function);
-    new_workers.spin_up(function_box).unwrap();
+    let mut new_workers = WorkersPool::new(context);
 
     for y in 0..height {
         for x in 0..width {
@@ -595,28 +586,15 @@ fn start_rendering(texture: &mut Texture, commissioned_count: &mut usize, width:
     *workers = Some(new_workers);
 }
 
-fn stop_rendering(workers: &mut Option<Workers<Arc<RaytracingContext>, RaytracingWorkData, RaytracingResult>>) {
-    match workers {
-        None => {}
-        Some(workers) => {
-            workers.shut_down().unwrap();
-        }
-    }
+fn stop_rendering(workers: &mut Option<WorkersPool<RaytracingWorker>>) {
     *workers = None;
 }
 
-fn update_texture(completed_count: &mut usize, texture: &mut Texture, workers: &mut Workers<Arc<RaytracingContext>, RaytracingWorkData, RaytracingResult>) {
-    loop {
-        let result = workers.try_receive_result().unwrap();
+fn update_texture(completed_count: &mut usize, texture: &mut Texture, workers: &mut WorkersPool<RaytracingWorker>) {
+    let results = workers.collect_finished().unwrap();
 
-        match result {
-            None => {
-                return;
-            }
-            Some(result) => {
-                texture.set_pixel(result.x, result.y, result.pixel_color);
-                *completed_count = *completed_count + 1;
-            }
-        }
+    for result in results {
+        texture.set_pixel(result.x, result.y, result.pixel_color);
+        *completed_count = *completed_count + 1;
     }
 }

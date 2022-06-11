@@ -10,10 +10,10 @@ use crate::raytracing::materials::lambertian::Lambertian;
 use crate::raytracing::materials::metal::Metal;
 use crate::raytracing::ray::Ray;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct RaytracingScene {
     pub camera: Camera,
-    pub hittables: Vec<Box<dyn Hittable + 'static + Send + Sync>>
+    pub hittables: Vec<Arc<dyn Hittable + 'static + Send + Sync>>
 }
 
 impl RaytracingScene {
@@ -27,22 +27,22 @@ impl RaytracingScene {
     pub fn create_scene(aspect_ratio: f64) -> Self {
         let mut rand = thread_rng();
 
-        let mut hittables: Vec<Box<dyn Hittable + Send + Sync + 'static>> = vec![];
+        let mut hittables: Vec<Arc<dyn Hittable + Send + Sync + 'static>> = vec![];
 
         let ground_material = Arc::new(Lambertian::create(Color::create(0.5,0.5,0.5,1.0)));
-        let ground_sphere = Box::new(Sphere::create(Vec3::create(0.0, -1000.0, 0.0), 1000.0, ground_material));
+        let ground_sphere = Arc::new(Sphere::create(Vec3::create(0.0, -1000.0, 0.0), 1000.0, ground_material));
         hittables.push(ground_sphere);
 
         let center_material = Arc::new(Dielectric::create(1.5));
-        let center_sphere = Box::new(Sphere::create(Vec3::create(0.0, 1.0, 0.0), 1.0, center_material));
+        let center_sphere = Arc::new(Sphere::create(Vec3::create(0.0, 1.0, 0.0), 1.0, center_material));
         hittables.push(center_sphere);
 
         let left_material = Arc::new(Lambertian::create(Color::create(0.4,0.2,0.1,1.0)));
-        let left_sphere = Box::new(Sphere::create(Vec3::create(-4.0, 1.0, 0.0), 1.0, left_material));
+        let left_sphere = Arc::new(Sphere::create(Vec3::create(-4.0, 1.0, 0.0), 1.0, left_material));
         hittables.push(left_sphere);
 
         let right_material = Arc::new(Metal::create(Color::create(0.7,0.6,0.5,1.0), 0.0));
-        let right_sphere = Box::new(Sphere::create(Vec3::create(4.0, 1.0, 0.0), 1.0, right_material));
+        let right_sphere = Arc::new(Sphere::create(Vec3::create(4.0, 1.0, 0.0), 1.0, right_material));
         hittables.push(right_sphere);
 
         for a in -11..11 {
@@ -59,7 +59,7 @@ impl RaytracingScene {
                             a: 1.0
                         };
                         let sphere_material = Arc::new(Lambertian::create(albedo));
-                        let sphere = Box::new(Sphere::create(center, 0.2, sphere_material));
+                        let sphere = Arc::new(Sphere::create(center, 0.2, sphere_material));
                         hittables.push(sphere);
                     }
                     else if choose_mat < 0.95 {
@@ -71,12 +71,12 @@ impl RaytracingScene {
                         };
                         let fuzz = rand.gen_range(0.0..=0.5);
                         let sphere_material = Arc::new(Metal::create(albedo, fuzz));
-                        let sphere = Box::new(Sphere::create(center, 0.2, sphere_material));
+                        let sphere = Arc::new(Sphere::create(center, 0.2, sphere_material));
                         hittables.push(sphere);
                     }
                     else {
                         let sphere_material = Arc::new(Dielectric::create(1.5));
-                        let sphere = Box::new(Sphere::create(center, 0.2, sphere_material));
+                        let sphere = Arc::new(Sphere::create(center, 0.2, sphere_material));
                         hittables.push(sphere);
                     }
                 }
