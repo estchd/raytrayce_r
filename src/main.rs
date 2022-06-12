@@ -43,6 +43,7 @@ pub const CLASS_NAME: &str = "raytrace_window_class";
 pub const WINDOW_NAME: &str = "Raytrace Window";
 pub const WINDOW_POSITION: (u32, u32) = (50, 50);
 pub const WINDOW_SIZE: (u32, u32) = (1200, 800);
+pub const TILE_COUNT: (u32, u32) = (16,16);
 
 fn main() {
     let image_width = WINDOW_SIZE.0;
@@ -571,6 +572,8 @@ fn start_rendering(texture: &mut Texture, commissioned_count: &mut usize, width:
 
     let mut new_workers = WorkersPool::new(context);
 
+    /*
+    // Per Pixel Task
     for y in 0..height {
         for x in 0..width {
             let work_data = RaytracingWorkData {
@@ -579,6 +582,76 @@ fn start_rendering(texture: &mut Texture, commissioned_count: &mut usize, width:
             };
 
             new_workers.add_work(work_data).unwrap();
+        }
+    }
+     */
+
+    // Per Tile Task
+
+    let tile_width = width / TILE_COUNT.0;
+    let tile_height = height / TILE_COUNT.1;
+
+    let last_tile_width = tile_width + (width % tile_width);
+    let last_tile_height = tile_height + (height % tile_height);
+
+    let right_border_x = tile_width * (TILE_COUNT.0 - 1);
+    let bottom_border_y = tile_height * (TILE_COUNT.1 - 1);
+
+    // Bottom Right Tile
+
+    let task = RaytracingWorkData {
+        x: right_border_x,
+        y: bottom_border_y,
+        width: last_tile_width,
+        height: last_tile_height
+    };
+
+    new_workers.add_work(task).unwrap();
+
+    // Bottom Border Tiles
+    for tile_x in 0..(TILE_COUNT.0 - 1) {
+        let x = tile_x * tile_width;
+
+        let task = RaytracingWorkData {
+            x,
+            y: bottom_border_y,
+            width: tile_width,
+            height: last_tile_height
+        };
+
+        new_workers.add_work(task).unwrap();
+    }
+
+    // Right Border Tiles
+    for tile_y in 0..(TILE_COUNT.1 - 1) {
+        let y = tile_y * tile_height;
+
+        let task = RaytracingWorkData {
+            x: right_border_x,
+            y,
+            width: last_tile_width,
+            height: tile_height
+        };
+
+        new_workers.add_work(task).unwrap();
+    }
+
+
+
+    // Main Grid Tiles
+    for tile_y in 0..(TILE_COUNT.1 - 1) {
+        for tile_x in 0..(TILE_COUNT.0 - 1) {
+            let x = tile_x * tile_width;
+            let y = tile_y * tile_height;
+
+            let task = RaytracingWorkData {
+                x,
+                y,
+                width: tile_width,
+                height: tile_height
+            };
+
+            new_workers.add_work(task).unwrap();
         }
     }
 

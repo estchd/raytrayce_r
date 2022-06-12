@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use rand::{Rng, thread_rng};
-use workers_pool::Worker;
+use workers_pool::{TaskState, Worker};
 use scene::RaytracingScene;
 use crate::{Color};
 use crate::raytracing::hittable::Hittable;
@@ -31,11 +31,15 @@ pub struct RaytracingContext {
     pub scene: RaytracingScene
 }
 
+#[derive(Default, Copy, Clone, Eq, PartialEq, Debug)]
 pub struct RaytracingWorkData {
     pub x: u32,
-    pub y: u32
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
 }
 
+#[derive(Default, Copy, Clone, PartialEq, Debug)]
 pub struct RaytracingResult {
     pub x: u32,
     pub y: u32,
@@ -43,20 +47,56 @@ pub struct RaytracingResult {
 }
 
 #[derive(Debug, Copy, Clone, Default)]
-pub struct RaytracingWorker {}
+pub struct RaytracingWorker {
+    pub current_task_state: Option<RaytracingWorkerTaskState>
+}
+
+#[derive(Default, Copy, Clone, Eq, PartialEq, Debug)]
+pub struct RaytracingWorkerTaskState {
+    pub data: RaytracingWorkData,
+    pub current_coords: (u32,u32)
+}
 
 impl Worker for RaytracingWorker {
     type Data = RaytracingWorkData;
     type Result = RaytracingResult;
     type Context = RaytracingContext;
 
-    fn execute(&mut self, data: Self::Data, context: &Arc<Self::Context>) -> Self::Result {
+    fn execute(&mut self, data: Option<Self::Data>, context: &Arc<Self::Context>) -> (Option<Self::Result>, TaskState) {
         let mut rand = thread_rng();
+
+        let data = match data {
+            None => {
+                match &mut self.current_task_state {
+                    None => {
+                        return (None, TaskState::Finished);
+                    }
+                    Some(state) => {
+                        state
+                    }
+                }
+
+            }
+            Some(data) => {
+                self.current_task_state = Some(RaytracingWorkerTaskState {
+                    data,
+                    current_coords: (0, 0)
+                });
+
+                match &mut self.current_task_state {
+                    None => panic!(""),
+                    Some(state) => {
+                        state
+                    }
+                }
+            }
+        };
 
         let image_width = context.image_width;
         let image_height = context.image_height;
-        let x = data.x;
-        let y = data.y;
+
+        let x = data.data.x + data.current_coords.0;
+        let y = data.data.y + data.current_coords.1;
 
         let mut color = Color::new();
 
@@ -86,12 +126,25 @@ impl Worker for RaytracingWorker {
         };
 
         let result = RaytracingResult {
-            x: data.x,
-            y: data.y,
+            x,
+            y,
             pixel_color: color
         };
 
-        return result;
+        if data.current_coords.0 == (data.data.width - 1) {
+            if data.current_coords.1 == (data.data.height - 1) {
+                self.current_task_state = None;
+                return (Some(result), TaskState::Finished);
+            }
+
+            data.current_coords.0 = 0;
+            data.current_coords.1 += 1;
+        }
+        else {
+            data.current_coords.0 += 1;
+        }
+
+        return (Some(result), TaskState::Continue);
     }
 }
 
