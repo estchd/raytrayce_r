@@ -1,10 +1,12 @@
 use std::sync::Arc;
 use rand::{Rng, thread_rng};
 use workers_pool::{TaskState, Worker};
+use workers_pool::TaskState::Finished;
 use scene::RaytracingScene;
-use crate::{Color};
+use crate::Color;
 use crate::raytracing::hittable::Hittable;
 use crate::raytracing::ray::Ray;
+use crate::raytracing::work::RaytracingWork;
 
 pub mod vector_2d;
 pub mod vector_3d;
@@ -17,10 +19,7 @@ pub mod camera;
 pub mod hittable;
 pub mod hit_record;
 pub mod materials;
-
-pub const SAMPLES_PER_PIXEL: usize = 500;
-pub const MAX_BOUNCES: usize = 50;
-pub const NEAR_ZERO_THRESHOLD: f64 = f64::EPSILON;
+pub mod work;
 
 #[derive(Default, Clone)]
 pub struct RaytracingContext {
@@ -28,15 +27,7 @@ pub struct RaytracingContext {
     pub image_height: u32,
     pub samples_per_pixel: usize,
     pub max_bounces: usize,
-    pub scene: RaytracingScene
-}
-
-#[derive(Default, Copy, Clone, Eq, PartialEq, Debug)]
-pub struct RaytracingWorkData {
-    pub x: u32,
-    pub y: u32,
-    pub width: u32,
-    pub height: u32,
+    pub scene: Arc<RaytracingScene>
 }
 
 #[derive(Default, Copy, Clone, PartialEq, Debug)]
@@ -46,19 +37,18 @@ pub struct RaytracingResult {
     pub pixel_color: Color,
 }
 
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct RaytracingWorker {
     pub current_task_state: Option<RaytracingWorkerTaskState>
 }
 
-#[derive(Default, Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Debug)]
 pub struct RaytracingWorkerTaskState {
-    pub data: RaytracingWorkData,
-    pub current_coords: (u32,u32)
+    pub data: RaytracingWork,
 }
 
 impl Worker for RaytracingWorker {
-    type Data = RaytracingWorkData;
+    type Data = RaytracingWork;
     type Result = RaytracingResult;
     type Context = RaytracingContext;
 
@@ -80,7 +70,6 @@ impl Worker for RaytracingWorker {
             Some(data) => {
                 self.current_task_state = Some(RaytracingWorkerTaskState {
                     data,
-                    current_coords: (0, 0)
                 });
 
                 match &mut self.current_task_state {
@@ -92,11 +81,23 @@ impl Worker for RaytracingWorker {
             }
         };
 
+        let work = data.data.get_next_work_pixel();
+
+        let work = match work {
+            None => {
+                self.current_task_state = None;
+                return (None, Finished);
+            }
+            Some(work) => {
+                work
+            }
+        };
+
         let image_width = context.image_width;
         let image_height = context.image_height;
 
-        let x = data.data.x + data.current_coords.0;
-        let y = data.data.y + data.current_coords.1;
+        let x = work.0;
+        let y = work.1;
 
         let mut color = Color::new();
 
@@ -130,21 +131,7 @@ impl Worker for RaytracingWorker {
             y,
             pixel_color: color
         };
-
-        if data.current_coords.0 == (data.data.width - 1) {
-            if data.current_coords.1 == (data.data.height - 1) {
-                self.current_task_state = None;
-                return (Some(result), TaskState::Finished);
-            }
-
-            data.current_coords.0 = 0;
-            data.current_coords.1 += 1;
-        }
-        else {
-            data.current_coords.0 += 1;
-        }
-
-        return (Some(result), TaskState::Continue);
+        (Some(result), TaskState::Continue)
     }
 }
 

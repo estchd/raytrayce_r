@@ -6,11 +6,9 @@ use std::mem::MaybeUninit;
 use std::num::NonZeroU32;
 use std::ptr::copy;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Instant;
 use ascii::AsciiString;
-use imgui::{Condition, Context};
-use imgui_dx11_renderer::Renderer;
-use imgui_winit_support::{HiDpiMode, WinitPlatform};
 use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 use windows::core::PCSTR;
 use windows::Win32::Foundation::HWND;
@@ -20,7 +18,7 @@ use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageW, MSG, PeekMessage
 use winit::dpi::{PhysicalSize, Size};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
-use winit::window::{Window, WindowBuilder};
+use winit::window::WindowBuilder;
 use raytracing::color::Color;
 use crate::rendering::{bind_background_texture, bind_index_buffer, bind_input_layout, bind_pixel_shader, bind_render_target_view, bind_vertex_buffer, bind_vertex_shader, clear_render_target_view, create_back_buffer, create_background_texture, create_background_texture_resource_view, create_index_buffer, create_input_layout, create_pixel_shader, create_render_target_view, create_vertex_buffer, create_vertex_shader, draw_indexed, map_background_texture, present, set_primitive_topology, set_viewport, setup_directx_device_and_swapchain, unmap_background_texture};
 use crate::rendering::win32::dxgidebug::dump_debug_messages;
@@ -29,21 +27,26 @@ use raytracing::texture::{Texture, TextureWrapMode};
 use windows::core::Interface;
 use windows::Win32::Graphics::Dxgi::IDXGISwapChain;
 use workers_pool::WorkersPool;
-use raytracing::{RaytracingContext, RaytracingWorkData};
+use raytracing::RaytracingContext;
 use raytracing::scene::RaytracingScene;
+use crate::gui::{GUI, GUIModeSettings, GUIModeTree};
 use crate::image::save_texture_to_path;
-use crate::raytracing::{MAX_BOUNCES, RaytracingWorker, SAMPLES_PER_PIXEL};
+use crate::raytracing::RaytracingWorker;
 use crate::raytracing::vector_3d::Vec3;
+use crate::raytracing::work::generator::{GenerationMode, RaytracingWorkGenerator, TileAxisOrder};
 
 mod rendering;
 mod image;
 mod raytracing;
+mod gui;
 
 pub const CLASS_NAME: &str = "raytrace_window_class";
 pub const WINDOW_NAME: &str = "Raytrace Window";
 pub const WINDOW_POSITION: (u32, u32) = (50, 50);
 pub const WINDOW_SIZE: (u32, u32) = (1200, 800);
-pub const TILE_COUNT: (u32, u32) = (16,16);
+pub const SAMPLES_PER_PIXEL: usize = 100;
+pub const MAX_BOUNCES: usize = 50;
+pub const NEAR_ZERO_THRESHOLD: f64 = f64::EPSILON;
 
 fn main() {
     let image_width = WINDOW_SIZE.0;
@@ -62,11 +65,6 @@ fn main() {
         .with_title("Raytrace Window")
         .with_resizable(false)
         .build(&winit_event_loop).unwrap();
-
-    let mut imgui_context = imgui::Context::create();
-
-    let mut imgui_winit_platform = WinitPlatform::init(&mut imgui_context);
-    imgui_winit_platform.attach_window(imgui_context.io_mut(), &window, HiDpiMode::Default);
 
     let raw_window_handle = window.raw_window_handle();
     let window_handle = if let RawWindowHandle::Windows(handle) = raw_window_handle {
@@ -137,8 +135,6 @@ fn main() {
 
     bind_pixel_shader(&pixel_shader, &device_context);
 
-    let mut imgui_renderer = unsafe { imgui_dx11_renderer::Renderer::new(&mut imgui_context, &device) }.unwrap();
-
     let background_texture = create_background_texture(&device).unwrap();
     let background_texture_resource: ID3D11Resource = background_texture.cast::<ID3D11Resource>().unwrap();
 
@@ -158,27 +154,13 @@ fn main() {
 
     let mut last_frame = Instant::now();
     let mut current_computation_workers: Option<WorkersPool<RaytracingWorker>> = None;
-    let mut commissioned_count: usize = 0;
-    let mut completed_count: usize = 0;
-    let mut imgui_state = ImguiState {
-        completed_count,
-        commissioned_count,
-        image_path: "".to_string(),
-        combo_open: false,
-        selected: 0
-    };
+
+    let window = Arc::new(window);
+    let mut gui = GUI::new(window, &device);
 
     let aspect_ratio = image_width as f64 / image_height as f64;
 
-    let scene = RaytracingScene::create_scene(aspect_ratio);
-    
-    let raytracing_context = RaytracingContext {
-        image_width,
-        image_height,
-        samples_per_pixel: SAMPLES_PER_PIXEL,
-        max_bounces: MAX_BOUNCES,
-        scene
-    };
+    let scene = Arc::new(RaytracingScene::create_scene(aspect_ratio));
 
     winit_event_loop.run(move |event, _window_target, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -187,7 +169,7 @@ fn main() {
             Event::NewEvents(_) => {
                 let duration = last_frame.elapsed();
                 last_frame = Instant::now();
-                imgui_context.io_mut().update_delta_time(duration);
+                gui.update_delta(duration);
             },
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
@@ -199,21 +181,26 @@ fn main() {
             }
             Event::MainEventsCleared => {}
             event => {
-                imgui_winit_platform.handle_event(imgui_context.io_mut(), &window, &event);
+                gui.handle_event(event);
                 return;
             }
         }
 
         draw_background_texture(&triangle_indices, &texture, &background_texture_resource, &swap_chain, &device, &device_context);
 
-        let imgui_result = draw_imgui(&mut imgui_state, &window, &mut imgui_context, &mut imgui_renderer, &mut imgui_winit_platform);
+        let imgui_result = gui.draw();
 
         if imgui_result.render_start_button_clicked {
-            start_rendering(&mut texture, &mut commissioned_count,WINDOW_SIZE.0, WINDOW_SIZE.1, raytracing_context.clone(), &mut current_computation_workers);
-            completed_count = 0;
+            let samples_per_pixel = gui.state().samples_per_pixel;
+            let max_bounces = gui.state().max_bounces;
 
-            imgui_state.completed_count = 0;
-            imgui_state.commissioned_count = commissioned_count;
+            let gui_state_mut = gui.state_mut();
+            let commissioned_count = &mut gui_state_mut.commissioned_count;
+            let mode_tree = &mut gui_state_mut.mode_tree;
+
+            start_rendering(&mut texture, commissioned_count, image_width, image_height, samples_per_pixel, max_bounces, scene.clone(), mode_tree, &mut current_computation_workers);
+
+            gui.state_mut().completed_count = 0;
         }
 
         if imgui_result.render_stop_button_clicked {
@@ -221,14 +208,13 @@ fn main() {
         }
 
         if imgui_result.export_button_clicked {
-            save_texture_to_path(&imgui_state.image_path, &texture).unwrap();
+            save_texture_to_path(&gui.state().image_path, &texture).unwrap();
         }
 
         if let Some(workers) = &mut current_computation_workers {
-            update_texture(&mut completed_count, &mut texture, workers);
-            imgui_state.completed_count = completed_count;
+            update_texture(&mut gui.state_mut().completed_count, &mut texture, workers);
 
-            if completed_count >= commissioned_count {
+            if gui.state().completed_count >= gui.state().commissioned_count {
                 stop_rendering(&mut current_computation_workers);
             }
         }
@@ -236,20 +222,6 @@ fn main() {
         present(1,0, &swap_chain).unwrap();
     });
 
-}
-
-struct ImguiState {
-    completed_count: usize,
-    commissioned_count: usize,
-    image_path: String,
-    combo_open: bool,
-    selected: usize
-}
-
-struct ImguiResult {
-    render_start_button_clicked: bool,
-    render_stop_button_clicked: bool,
-    export_button_clicked: bool,
 }
 
 fn handle_messages() -> bool {
@@ -525,135 +497,30 @@ fn draw_background_texture(triangle_indices: &[u32], texture: &Texture, backgrou
 
 }
 
-fn draw_imgui(imgui_state: &mut ImguiState, window: &Window, imgui_context: &mut Context, imgui_renderer: &mut Renderer, imgui_winit_platform: &mut WinitPlatform) -> ImguiResult {
-    imgui_winit_platform.prepare_frame(imgui_context.io_mut(), &window).unwrap();
-    let ui = imgui_context.frame();
-
-    let mut render_start_button_clicked: bool = false;
-    let mut render_stop_button_clicked: bool = false;
-    let mut export_button_clicked: bool = false;
-
-    imgui::Window::new("Imgui Window")
-        .size([300.0, 100.0], Condition::FirstUseEver)
-        .build(&ui, || {
-            imgui::InputText::new(&ui, "Image Path", &mut imgui_state.image_path)
-                .build();
-            export_button_clicked = ui.button("Export to image");
-            render_start_button_clicked = ui.button("Start Render");
-            render_stop_button_clicked = ui.button("Stop Render");
-            ui.text("Rendering:");
-            if imgui_state.completed_count >= imgui_state.commissioned_count {
-                ui.text("Done!");
-            }
-            else {
-                let percentage = (imgui_state.completed_count as f32 / imgui_state.commissioned_count as f32) * 100.0;
-                let text = format!("{}/{} : {}%", imgui_state.completed_count, imgui_state.commissioned_count, percentage);
-
-                ui.text(text);
-            }
-
-            imgui_state.combo_open = ui.combo_simple_string("Select Test", &mut imgui_state.selected, &["First", "Second", "Banana"]);
-        });
-
-    imgui_winit_platform.prepare_render(&ui, &window);
-    imgui_renderer.render(ui.render()).unwrap();
-
-    ImguiResult {
-        render_start_button_clicked,
-        render_stop_button_clicked,
-        export_button_clicked
-    }
-}
-
-fn start_rendering(texture: &mut Texture, commissioned_count: &mut usize, width: u32, height: u32, context: RaytracingContext, workers: &mut Option<WorkersPool<RaytracingWorker>>) {
+fn start_rendering(texture: &mut Texture, commissioned_count: &mut usize, width: u32, height: u32, samples_per_pixel: usize, max_bounces: usize, scene: Arc<RaytracingScene>, gui_mode_tree: &GUIModeTree, workers: &mut Option<WorkersPool<RaytracingWorker>>) {
     *workers = None;
 
     texture.clear(Color::create(0.0,0.0,0.0,1.0));
 
-    let mut new_workers = WorkersPool::new(context);
-
-    /*
-    // Per Pixel Task
-    for y in 0..height {
-        for x in 0..width {
-            let work_data = RaytracingWorkData {
-                x,
-                y
-            };
-
-            new_workers.add_work(work_data).unwrap();
-        }
-    }
-     */
-
-    // Per Tile Task
-
-    let tile_width = width / TILE_COUNT.0;
-    let tile_height = height / TILE_COUNT.1;
-
-    let last_tile_width = tile_width + (width % tile_width);
-    let last_tile_height = tile_height + (height % tile_height);
-
-    let right_border_x = tile_width * (TILE_COUNT.0 - 1);
-    let bottom_border_y = tile_height * (TILE_COUNT.1 - 1);
-
-    // Bottom Right Tile
-
-    let task = RaytracingWorkData {
-        x: right_border_x,
-        y: bottom_border_y,
-        width: last_tile_width,
-        height: last_tile_height
+    let context = RaytracingContext {
+        image_width: width,
+        image_height: height,
+        samples_per_pixel,
+        max_bounces,
+        scene
     };
 
-    new_workers.add_work(task).unwrap();
+    let mut new_workers = WorkersPool::new(context);
 
-    // Bottom Border Tiles
-    for tile_x in 0..(TILE_COUNT.0 - 1) {
-        let x = tile_x * tile_width;
+    let generation_mode = GenerationMode::from_gui_mode_tree(gui_mode_tree);
 
-        let task = RaytracingWorkData {
-            x,
-            y: bottom_border_y,
-            width: tile_width,
-            height: last_tile_height
-        };
+    let generator = RaytracingWorkGenerator {
+        width,
+        height,
+        generation_mode
+    };
 
-        new_workers.add_work(task).unwrap();
-    }
-
-    // Right Border Tiles
-    for tile_y in 0..(TILE_COUNT.1 - 1) {
-        let y = tile_y * tile_height;
-
-        let task = RaytracingWorkData {
-            x: right_border_x,
-            y,
-            width: last_tile_width,
-            height: tile_height
-        };
-
-        new_workers.add_work(task).unwrap();
-    }
-
-
-
-    // Main Grid Tiles
-    for tile_y in 0..(TILE_COUNT.1 - 1) {
-        for tile_x in 0..(TILE_COUNT.0 - 1) {
-            let x = tile_x * tile_width;
-            let y = tile_y * tile_height;
-
-            let task = RaytracingWorkData {
-                x,
-                y,
-                width: tile_width,
-                height: tile_height
-            };
-
-            new_workers.add_work(task).unwrap();
-        }
-    }
+    generator.generate(&mut new_workers).unwrap();
 
     *commissioned_count = width as usize * height as usize;
     *workers = Some(new_workers);
