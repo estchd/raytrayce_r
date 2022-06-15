@@ -44,44 +44,22 @@ pub enum GUIModeSettings {
     PixelRandom,
     Line {
         reverse_order_horizontal: bool,
-        random_order_vertical: bool
-    },
-    PixelLine {
-        reverse_order_horizontal: bool,
-        random_order_vertical: bool
+        random_order_vertical: bool,
+        transparent: bool,
     },
     Stripe {
         random_order_horizontal: bool,
-        reverse_order_vertical: bool
+        reverse_order_vertical: bool,
+        transparent: bool,
     },
-    PixelStripe {
-        random_order_horizontal: bool,
-        reverse_order_vertical: bool
-    },
-    LineFirstTile {
+    Tile {
         tile_width: u32,
         tile_height: u32,
+        dimension_order: usize,
         horizontal_order: usize,
-        vertical_order: usize
+        vertical_order: usize,
+        transparent: bool,
     },
-    StripeFirstTile {
-        tile_width: u32,
-        tile_height: u32,
-        horizontal_order: usize,
-        vertical_order: usize
-    },
-    LineFirstPixelTile {
-        tile_width: u32,
-        tile_height: u32,
-        horizontal_order: usize,
-        vertical_order: usize
-    },
-    StripeFirstPixelTile {
-        tile_width: u32,
-        tile_height: u32,
-        horizontal_order: usize,
-        vertical_order: usize
-    }
 }
 
 impl GUI {
@@ -230,25 +208,23 @@ impl GUI {
     fn draw_mode_settings(settings: &mut GUIModeSettings, ui: &Ui) {
         match settings {
             GUIModeSettings::PixelRandom => {}
-            GUIModeSettings::Line { reverse_order_horizontal, random_order_vertical } |
-            GUIModeSettings::PixelLine { reverse_order_horizontal, random_order_vertical } => {
+            GUIModeSettings::Line { reverse_order_horizontal, random_order_vertical, transparent } => {
                 ui.checkbox("Reverse Horizontal Order", reverse_order_horizontal);
                 ui.checkbox("Random Vertical Order", random_order_vertical);
+                ui.checkbox("Transparent", transparent);
             }
-            GUIModeSettings::Stripe { random_order_horizontal, reverse_order_vertical } |
-            GUIModeSettings::PixelStripe { random_order_horizontal, reverse_order_vertical } => {
+            GUIModeSettings::Stripe { random_order_horizontal, reverse_order_vertical, transparent } => {
                 ui.checkbox("Random Horizontal Order", random_order_horizontal);
                 ui.checkbox("Reverse Vertical Order", reverse_order_vertical);
+                ui.checkbox("Transparent", transparent);
             }
-            GUIModeSettings::LineFirstTile { tile_width, tile_height, horizontal_order, vertical_order } |
-            GUIModeSettings::StripeFirstTile { tile_width, tile_height, horizontal_order, vertical_order } |
-            GUIModeSettings::LineFirstPixelTile { tile_width, tile_height, horizontal_order, vertical_order } |
-            GUIModeSettings::StripeFirstPixelTile { tile_width, tile_height, horizontal_order, vertical_order } => {
+            GUIModeSettings::Tile { tile_width, tile_height, dimension_order, horizontal_order, vertical_order, transparent } => {
                 let mut new_tile_width = *tile_width as i32;
                 let mut new_tile_height = *tile_height as i32;
 
                 ui.input_int("Tile Width", &mut new_tile_width).build();
                 ui.input_int("Tile Height", &mut new_tile_height).build();
+                ui.checkbox("Transparent", transparent);
 
                 if new_tile_width < 1 {
                     new_tile_width = 1;
@@ -259,8 +235,12 @@ impl GUI {
                 *tile_width = new_tile_width as u32;
                 *tile_height = new_tile_height as u32;
 
-                Self::draw_tile_axis_order_select("Horizontal Order", horizontal_order, ui);
-                Self::draw_tile_axis_order_select("Vertical Order", vertical_order, ui);
+                Self::draw_tile_dimension_order_select(dimension_order, ui);
+
+                if *dimension_order != 2 {
+                    Self::draw_tile_axis_order_select("Horizontal Order", horizontal_order, ui);
+                    Self::draw_tile_axis_order_select("Vertical Order", vertical_order, ui);
+                }
             }
         }
     }
@@ -286,10 +266,16 @@ impl GUI {
         ui.combo_simple_string(label, selected_item, &["Forward", "Reverse", "Random"]);
     }
 
+    fn draw_tile_dimension_order_select(selected_item: &mut usize, ui: &Ui) {
+        let [width, _] = ui.calc_text_size("Dimension Order");
+        ui.push_item_width(-(width + 5.0));
+        ui.combo_simple_string("Dimension Order", selected_item, &["Line First", "Stripe First", "Random"]);
+    }
+
     fn draw_generation_mode_select(selected_item: &mut usize, ui: &Ui) {
         let [width, _] = ui.calc_text_size("Generation Mode");
         ui.push_item_width(-(width + 5.0));
-        ui.combo_simple_string("Generation Mode", selected_item, &["PixelRandom", "Line", "PixelLine", "Stripe", "PixelStripe", "LineFirstTile", "StripeFirstTile", "LineFirstPixelTile", "StripeFirstPixelTile"]);
+        ui.combo_simple_string("Generation Mode", selected_item, &["Random", "Line", "Stripe", "Tile"]);
     }
 
     fn update_mode_tree(tree: &mut GUIModeTree) {
@@ -307,13 +293,8 @@ fn mode_settings_to_index(mode: &GUIModeSettings) -> usize {
     match mode {
         GUIModeSettings::PixelRandom => 0,
         GUIModeSettings::Line { .. } => 1,
-        GUIModeSettings::PixelLine { .. } => 2,
-        GUIModeSettings::Stripe { .. } => 3,
-        GUIModeSettings::PixelStripe { .. } => 4,
-        GUIModeSettings::LineFirstTile { .. } => 5,
-        GUIModeSettings::StripeFirstTile { .. } => 6,
-        GUIModeSettings::LineFirstPixelTile { .. } => 7,
-        GUIModeSettings::StripeFirstPixelTile { .. } => 8
+        GUIModeSettings::Stripe { .. } => 2,
+        GUIModeSettings::Tile { .. } => 3,
     }
 }
 
@@ -322,57 +303,25 @@ fn index_to_mode_settings(index: usize) -> GUIModeSettings {
         1 => {
             GUIModeSettings::Line {
                 reverse_order_horizontal: false,
-                random_order_vertical: false
+                random_order_vertical: false,
+                transparent: false
             }
         },
         2 => {
-            GUIModeSettings::PixelLine {
-                reverse_order_horizontal: false,
-                random_order_vertical: false
+            GUIModeSettings::Stripe {
+                random_order_horizontal: false,
+                reverse_order_vertical: false,
+                transparent: false
             }
         }
         3 => {
-            GUIModeSettings::Stripe {
-                random_order_horizontal: false,
-                reverse_order_vertical: false
-            }
-        }
-        4 => {
-            GUIModeSettings::PixelStripe {
-                random_order_horizontal: false,
-                reverse_order_vertical: false
-            }
-        }
-        5 => {
-            GUIModeSettings::LineFirstTile {
+            GUIModeSettings::Tile {
                 tile_width: 10,
                 tile_height: 10,
+                dimension_order: 0,
                 horizontal_order: 0,
-                vertical_order: 0
-            }
-        }
-        6 => {
-            GUIModeSettings::StripeFirstTile {
-                tile_width: 10,
-                tile_height: 10,
-                horizontal_order: 0,
-                vertical_order: 0
-            }
-        }
-        7 => {
-            GUIModeSettings::LineFirstPixelTile {
-                tile_width: 10,
-                tile_height: 10,
-                horizontal_order: 0,
-                vertical_order: 0
-            }
-        }
-        8 => {
-            GUIModeSettings::StripeFirstPixelTile {
-                tile_width: 10,
-                tile_height: 10,
-                horizontal_order: 0,
-                vertical_order: 0
+                vertical_order: 0,
+                transparent: false
             }
         }
         _ => GUIModeSettings::PixelRandom,
@@ -382,7 +331,7 @@ fn index_to_mode_settings(index: usize) -> GUIModeSettings {
 
 fn index_to_sub_tree(index: usize) -> Option<Box<GUIModeTree>> {
     match index {
-        5 | 6 | 7 | 8 => {
+        3 => {
             Some(Box::new(GUIModeTree {
                 selection: 0,
                 settings: GUIModeSettings::PixelRandom,

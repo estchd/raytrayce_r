@@ -29,11 +29,11 @@ use windows::Win32::Graphics::Dxgi::IDXGISwapChain;
 use workers_pool::WorkersPool;
 use raytracing::RaytracingContext;
 use raytracing::scene::RaytracingScene;
-use crate::gui::{GUI, GUIModeSettings, GUIModeTree};
+use crate::gui::{GUI, GUIModeTree};
 use crate::image::save_texture_to_path;
 use crate::raytracing::RaytracingWorker;
 use crate::raytracing::vector_3d::Vec3;
-use crate::raytracing::work::generator::{GenerationMode, RaytracingWorkGenerator, TileAxisOrder};
+use crate::raytracing::work::generator::{GenerationMode, RaytracingWorkGenerator};
 
 mod rendering;
 mod image;
@@ -44,8 +44,6 @@ pub const CLASS_NAME: &str = "raytrace_window_class";
 pub const WINDOW_NAME: &str = "Raytrace Window";
 pub const WINDOW_POSITION: (u32, u32) = (50, 50);
 pub const WINDOW_SIZE: (u32, u32) = (1200, 800);
-pub const SAMPLES_PER_PIXEL: usize = 100;
-pub const MAX_BOUNCES: usize = 50;
 pub const NEAR_ZERO_THRESHOLD: f64 = f64::EPSILON;
 
 fn main() {

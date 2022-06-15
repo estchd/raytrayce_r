@@ -12,53 +12,39 @@ pub enum TileAxisOrder {
 	Random
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum TileDimensionOrder {
+	LineFirst {
+		horizontal_order: TileAxisOrder,
+		vertical_order: TileAxisOrder
+	},
+	StripeFirst {
+		horizontal_order: TileAxisOrder,
+		vertical_order: TileAxisOrder
+	},
+	Random
+}
+
 #[derive(Debug, Clone)]
 pub enum GenerationMode {
 	PixelRandom,
 	Line {
 		reverse_order_horizontal: bool,
-		random_order_vertical: bool
-	},
-	PixelLine {
-		reverse_order_horizontal: bool,
-		random_order_vertical: bool
+		random_order_vertical: bool,
+		transparent: bool
 	},
 	Stripe {
 		random_order_horizontal: bool,
-		reverse_order_vertical: bool
+		reverse_order_vertical: bool,
+		transparent: bool
 	},
-	PixelStripe {
-		random_order_horizontal: bool,
-		reverse_order_vertical: bool
-	},
-	LineFirstTile {
+	Tile {
 		tile_width: u32,
 		tile_height: u32,
-		horizontal_order: TileAxisOrder,
-		vertical_order: TileAxisOrder,
+		transparent: bool,
+		dimension_order: TileDimensionOrder,
 		sub_generation_mode: Box<GenerationMode>
 	},
-	StripeFirstTile {
-		tile_width: u32,
-		tile_height: u32,
-		horizontal_order: TileAxisOrder,
-		vertical_order: TileAxisOrder,
-		sub_generation_mode: Box<GenerationMode>
-	},
-	LineFirstPixelTile {
-		tile_width: u32,
-		tile_height: u32,
-		horizontal_order: TileAxisOrder,
-		vertical_order: TileAxisOrder,
-		sub_generation_mode: Box<GenerationMode>
-	},
-	StripeFirstPixelTile {
-		tile_width: u32,
-		tile_height: u32,
-		horizontal_order: TileAxisOrder,
-		vertical_order: TileAxisOrder,
-		sub_generation_mode: Box<GenerationMode>
-	}
 }
 
 impl GenerationMode {
@@ -79,297 +65,56 @@ impl GenerationMode {
 
 				coords.shuffle(&mut rand);
 
-				for (x,y) in coords {
-					let new_work = RaytracingWork::pixel(x,y);
+				for (new_x,new_y) in coords {
+					let new_work = RaytracingWork::pixel(new_x, new_y);
 					work.push(new_work);
 				}
 			}
-			GenerationMode::Line { reverse_order_horizontal, random_order_vertical } => {
+			GenerationMode::Line { reverse_order_horizontal, random_order_vertical, transparent } => {
 				let mut line_order: Vec<u32> = (0..height).collect();
 
 				if *random_order_vertical {
 					line_order.shuffle(&mut rand);
 				}
 
-				for y in line_order {
-					let new_work = RaytracingWork::line(y, width, *reverse_order_horizontal);
-					work.push(new_work);
-				}
-			}
-			GenerationMode::PixelLine { reverse_order_horizontal, random_order_vertical } => {
-				let mut line_order: Vec<u32> = (0..height).collect();
+				for new_y in line_order {
 
-				if *random_order_vertical {
-					line_order.shuffle(&mut rand);
-				}
+					let new_work = RaytracingWork::line(0, new_y, width, *reverse_order_horizontal);
 
-				for y in line_order {
-					let pixel_order = 0..width;
-					let pixel_order: Vec<u32> = if *reverse_order_horizontal {
-						pixel_order.rev().collect()
+					if *transparent {
+						let mut new_work = new_work.to_sub_work();
+						work.append(&mut new_work);
 					}
 					else {
-						pixel_order.collect()
-					};
-
-					for x in pixel_order {
-						let new_work = RaytracingWork::pixel(x,y);
 						work.push(new_work);
 					}
 				}
 			}
-			GenerationMode::Stripe { random_order_horizontal, reverse_order_vertical } => {
+			GenerationMode::Stripe { random_order_horizontal, reverse_order_vertical, transparent } => {
 				let mut stripe_order: Vec<u32> = (0..width).collect();
 
 				if *random_order_horizontal {
 					stripe_order.shuffle(&mut rand);
 				}
 
-				for x in stripe_order {
-					let new_work = RaytracingWork::stripe(x, height, *reverse_order_vertical);
-					work.push(new_work);
-				}
-			}
-			GenerationMode::PixelStripe { random_order_horizontal, reverse_order_vertical } => {
-				let mut stripe_order: Vec<u32> = (0..width).collect();
-
-				if *random_order_horizontal {
-					stripe_order.shuffle(&mut rand);
-				}
-
-				for x in stripe_order {
-					let pixel_order = 0..height;
-					let pixel_order: Vec<u32> = if *reverse_order_vertical {
-						pixel_order.rev().collect()
-					} else {
-						pixel_order.collect()
-					};
-
-					for y in pixel_order {
-						let new_work = RaytracingWork::pixel(x,y);
-						work.push(new_work);
-					}
-				}
-			}
-			GenerationMode::LineFirstTile { tile_width, tile_height, horizontal_order, vertical_order, sub_generation_mode } => {
-				let mut horizontal_count = width / tile_width;
-				let mut vertical_count = height / tile_height;
-
-				let right_border = width % tile_width != 0;
-				let bottom_border = height % tile_height != 0;
-
-				let last_tile_width = tile_width + (width % tile_width);
-				let last_tile_height = tile_height + (height % tile_height);
-
-				if right_border {
-					horizontal_count += 1;
-				}
-				if bottom_border {
-					vertical_count += 1;
-				}
-
-				let vertical_range = 0..vertical_count;
-
-				let vertical_order: Vec<u32> = match vertical_order {
-					TileAxisOrder::Forward => {
-						vertical_range.collect()
-					}
-					TileAxisOrder::Reverse => {
-						vertical_range.rev().collect()
-					}
-					TileAxisOrder::Random => {
-						let mut order: Vec<u32> = vertical_range.collect();
-						order.shuffle(&mut rand);
-						order
-					}
-				};
-
-				for y in vertical_order {
-					let horizontal_range = 0..horizontal_count;
-					let horizontal_order: Vec<u32> = match horizontal_order {
-						TileAxisOrder::Forward => {
-							horizontal_range.collect()
-						}
-						TileAxisOrder::Reverse => {
-							horizontal_range.rev().collect()
-						}
-						TileAxisOrder::Random => {
-							let mut order: Vec<u32> = horizontal_range.collect();
-							order.shuffle(&mut rand);
-							order
-						}
-					};
-
-					for x in horizontal_order {
-						let width = if right_border && x == (horizontal_count - 1) {
-							last_tile_width
-						}
-						else {
-							*tile_width
-						};
-
-						let height = if bottom_border && y == (vertical_count - 1) {
-							last_tile_height
-						}
-						else {
-							*tile_height
-						};
-
-						let new_work = sub_generation_mode.to_work(width, height);
-
-						let new_work = RaytracingWork::tile(x * tile_width, y * tile_height, new_work);
-
-						work.push(new_work);
-					}
-				}
-			}
-			GenerationMode::StripeFirstTile { tile_width, tile_height, horizontal_order, vertical_order, sub_generation_mode } => {
-				let mut horizontal_count = width / tile_width;
-				let mut vertical_count = height / tile_height;
-
-				let right_border = width % tile_width != 0;
-				let bottom_border = height % tile_height != 0;
-
-				let last_tile_width = tile_width + (width % tile_width);
-				let last_tile_height = tile_height + (height % tile_height);
-
-				if right_border {
-					horizontal_count += 1;
-				}
-				if bottom_border {
-					vertical_count += 1;
-				}
-
-				let horizontal_range = 0..horizontal_count;
-
-				let horizontal_order: Vec<u32> = match horizontal_order {
-					TileAxisOrder::Forward => {
-						horizontal_range.collect()
-					}
-					TileAxisOrder::Reverse => {
-						horizontal_range.rev().collect()
-					}
-					TileAxisOrder::Random => {
-						let mut order: Vec<u32> = horizontal_range.collect();
-						order.shuffle(&mut rand);
-						order
-					}
-				};
-
-
-
-				for x in horizontal_order {
-					let vertical_range = 0..vertical_count;
-					let vertical_order: Vec<u32> = match vertical_order {
-						TileAxisOrder::Forward => {
-							vertical_range.collect()
-						}
-						TileAxisOrder::Reverse => {
-							vertical_range.rev().collect()
-						}
-						TileAxisOrder::Random => {
-							let mut order: Vec<u32> = vertical_range.collect();
-							order.shuffle(&mut rand);
-							order
-						}
-					};
-
-					for y in vertical_order {
-						let width = if right_border && x == (horizontal_count - 1) {
-							last_tile_width
-						}
-						else {
-							*tile_width
-						};
-
-						let height = if bottom_border && y == (vertical_count - 1) {
-							last_tile_height
-						}
-						else {
-							*tile_height
-						};
-
-						let new_work = sub_generation_mode.to_work(width, height);
-
-						let new_work = RaytracingWork::tile(x * tile_width, y * tile_height, new_work);
-
-						work.push(new_work);
-					}
-				}
-			}
-			GenerationMode::LineFirstPixelTile { tile_width, tile_height, horizontal_order, vertical_order, sub_generation_mode } => {
-				let mut horizontal_count = width / tile_width;
-				let mut vertical_count = height / tile_height;
-
-				let right_border = width % tile_width != 0;
-				let bottom_border = height % tile_height != 0;
-
-				let last_tile_width = tile_width + (width % tile_width);
-				let last_tile_height = tile_height + (height % tile_height);
-
-				if right_border {
-					horizontal_count += 1;
-				}
-				if bottom_border {
-					vertical_count += 1;
-				}
-
-				let vertical_range = 0..vertical_count;
-
-
-
-				let vertical_order: Vec<u32> = match vertical_order {
-					TileAxisOrder::Forward => {
-						vertical_range.collect()
-					}
-					TileAxisOrder::Reverse => {
-						vertical_range.rev().collect()
-					}
-					TileAxisOrder::Random => {
-						let mut order: Vec<u32> = vertical_range.collect();
-						order.shuffle(&mut rand);
-						order
-					}
-				};
-
-				for y in vertical_order {
-					let horizontal_range = 0..horizontal_count;
-					let horizontal_order: Vec<u32> = match horizontal_order {
-						TileAxisOrder::Forward => {
-							horizontal_range.collect()
-						}
-						TileAxisOrder::Reverse => {
-							horizontal_range.rev().collect()
-						}
-						TileAxisOrder::Random => {
-							let mut order: Vec<u32> = horizontal_range.collect();
-							order.shuffle(&mut rand);
-							order
-						}
-					};
-
-					for x in horizontal_order {
-						let width = if right_border && x == (horizontal_count - 1) {
-							last_tile_width
-						}
-						else {
-							*tile_width
-						};
-
-						let height = if bottom_border && y == (vertical_count - 1) {
-							last_tile_height
-						}
-						else {
-							*tile_height
-						};
-
-						let mut new_work = sub_generation_mode.to_work(width, height);
-
+				for new_x in stripe_order {
+					let new_work = RaytracingWork::stripe(new_x, 0, height, *reverse_order_vertical);
+					if *transparent {
+						let mut new_work = new_work.to_sub_work();
 						work.append(&mut new_work);
 					}
+					else {
+						work.push(new_work);
+					}
 				}
 			}
-			GenerationMode::StripeFirstPixelTile { tile_width, tile_height, horizontal_order, vertical_order, sub_generation_mode } => {
+			GenerationMode::Tile {
+				tile_width,
+				tile_height,
+				transparent,
+				dimension_order,
+				sub_generation_mode
+			} => {
 				let mut horizontal_count = width / tile_width;
 				let mut vertical_count = height / tile_height;
 
@@ -386,54 +131,67 @@ impl GenerationMode {
 					vertical_count += 1;
 				}
 
-				let horizontal_range = 0..horizontal_count;
-				let horizontal_order: Vec<u32> = match horizontal_order {
-					TileAxisOrder::Forward => {
-						horizontal_range.collect()
+				let mut coordinates: Vec<(u32,u32)> = Vec::with_capacity((vertical_count * horizontal_count) as usize);
+
+				match dimension_order {
+					TileDimensionOrder::LineFirst { horizontal_order, vertical_order } => {
+						let vertical_order = Self::axis_order_range_to_values(0, vertical_count, *vertical_order);
+
+						for y in vertical_order {
+							let horizontal_order = Self::axis_order_range_to_values(0, horizontal_count,*horizontal_order);
+
+							for x in horizontal_order {
+								coordinates.push((x,y));
+							}
+						}
 					}
-					TileAxisOrder::Reverse => {
-						horizontal_range.rev().collect()
+					TileDimensionOrder::StripeFirst { horizontal_order, vertical_order } => {
+						let horizontal_order = Self::axis_order_range_to_values(0, horizontal_count, *horizontal_order);
+
+						for x in horizontal_order {
+							let vertical_order = Self::axis_order_range_to_values(0, vertical_count, *vertical_order);
+
+							for y in vertical_order {
+								coordinates.push((x,y));
+							}
+						}
 					}
-					TileAxisOrder::Random => {
-						let mut order: Vec<u32> = horizontal_range.collect();
-						order.shuffle(&mut rand);
-						order
+					TileDimensionOrder::Random => {
+						for y in 0..vertical_count {
+							for x in 0..horizontal_count {
+								coordinates.push((x,y));
+							}
+						}
+						coordinates.shuffle(&mut rand);
 					}
 				};
 
-				for x in horizontal_order {
-					let vertical_range = 0..vertical_count;
-					let vertical_order: Vec<u32> = match vertical_order {
-						TileAxisOrder::Forward => {
-							vertical_range.collect()
-						}
-						TileAxisOrder::Reverse => {
-							vertical_range.rev().collect()
-						}
-						TileAxisOrder::Random => {
-							let mut order: Vec<u32> = vertical_range.collect();
-							order.shuffle(&mut rand);
-							order
-						}
+				for (new_x, new_y) in coordinates {
+
+					let width = if right_border && new_x == (horizontal_count - 1) {
+						last_tile_width
+					}
+					else {
+						*tile_width
 					};
-					for y in vertical_order {
-						let width = if right_border && x == (horizontal_count - 1) {
-							last_tile_width
-						}
-						else {
-							*tile_width
-						};
 
-						let height = if bottom_border && y == (vertical_count - 1) {
-							last_tile_height
-						}
-						else {
-							*tile_height
-						};
+					let height = if bottom_border && new_y == (vertical_count - 1) {
+						last_tile_height
+					}
+					else {
+						*tile_height
+					};
 
-						let mut new_work = sub_generation_mode.to_work(width, height);
+					let new_work = sub_generation_mode.to_work(width, height);
+					let new_work = RaytracingWork::tile(new_x * tile_width, new_y * tile_height, new_work);
 
+					if *transparent {
+						let mut new_work = new_work.to_sub_work();
 						work.append(&mut new_work);
+					}
+					else {
+
+						work.push(new_work);
 					}
 				}
 			}
@@ -447,33 +205,22 @@ impl GenerationMode {
 			GUIModeSettings::PixelRandom => {
 				Self::PixelRandom
 			}
-			GUIModeSettings::Line { reverse_order_horizontal, random_order_vertical } => {
+			GUIModeSettings::Line { reverse_order_horizontal, random_order_vertical, transparent } => {
 				Self::Line {
 					reverse_order_horizontal: *reverse_order_horizontal,
-					random_order_vertical: *random_order_vertical
+					random_order_vertical: *random_order_vertical,
+					transparent: *transparent
 				}
 			}
-			GUIModeSettings::PixelLine { reverse_order_horizontal, random_order_vertical } => {
-				Self::PixelLine {
-					reverse_order_horizontal: *reverse_order_horizontal,
-					random_order_vertical: *random_order_vertical
-				}
-			}
-			GUIModeSettings::Stripe { random_order_horizontal, reverse_order_vertical } => {
+			GUIModeSettings::Stripe { random_order_horizontal, reverse_order_vertical, transparent } => {
 				Self::Stripe {
 					random_order_horizontal: *random_order_horizontal,
-					reverse_order_vertical: *reverse_order_vertical
+					reverse_order_vertical: *reverse_order_vertical,
+					transparent: *transparent
 				}
 			}
-			GUIModeSettings::PixelStripe { random_order_horizontal, reverse_order_vertical } => {
-				Self::PixelStripe {
-					random_order_horizontal: *random_order_horizontal,
-					reverse_order_vertical: *reverse_order_vertical
-				}
-			}
-			GUIModeSettings::LineFirstTile { tile_width, tile_height, horizontal_order, vertical_order } => {
-				let horizontal_order = Self::index_to_tile_axis_order(*horizontal_order);
-				let vertical_order = Self::index_to_tile_axis_order(*vertical_order);
+			GUIModeSettings::Tile { tile_width, tile_height, dimension_order, horizontal_order, vertical_order, transparent } => {
+				let dimension_order = Self::indices_to_tile_dimension_order(*horizontal_order, *vertical_order, *dimension_order);
 
 				let sub_tree = match &tree.sub_tree {
 					None => panic!(),
@@ -482,70 +229,36 @@ impl GenerationMode {
 
 				let sub_generation_mode = Self::from_gui_mode_tree(sub_tree);
 
-				Self::LineFirstTile {
+				Self::Tile {
 					tile_width: *tile_width,
 					tile_height: *tile_height,
-					horizontal_order,
-					vertical_order,
+					dimension_order,
+					transparent: *transparent,
 					sub_generation_mode: Box::new(sub_generation_mode)
 				}
 			}
-			GUIModeSettings::StripeFirstTile { tile_width, tile_height, horizontal_order, vertical_order } => {
-				let horizontal_order = Self::index_to_tile_axis_order(*horizontal_order);
-				let vertical_order = Self::index_to_tile_axis_order(*vertical_order);
+		}
+	}
 
-				let sub_tree = match &tree.sub_tree {
-					None => panic!(),
-					Some(sub_tree) => sub_tree
-				};
+	fn indices_to_tile_dimension_order(horizontal_order: usize, vertical_order: usize, dimension_order: usize) -> TileDimensionOrder {
+		let horizontal_order = Self::index_to_tile_axis_order(horizontal_order);
+		let vertical_order = Self::index_to_tile_axis_order(vertical_order);
 
-				let sub_generation_mode = Self::from_gui_mode_tree(sub_tree);
-
-				Self::StripeFirstTile {
-					tile_width: *tile_width,
-					tile_height: *tile_height,
+		match dimension_order {
+			0 => {
+				TileDimensionOrder::LineFirst {
 					horizontal_order,
-					vertical_order,
-					sub_generation_mode: Box::new(sub_generation_mode)
+					vertical_order
 				}
 			}
-			GUIModeSettings::LineFirstPixelTile { tile_width, tile_height, horizontal_order, vertical_order } => {
-				let horizontal_order = Self::index_to_tile_axis_order(*horizontal_order);
-				let vertical_order = Self::index_to_tile_axis_order(*vertical_order);
-
-				let sub_tree = match &tree.sub_tree {
-					None => panic!(),
-					Some(sub_tree) => sub_tree
-				};
-
-				let sub_generation_mode = Self::from_gui_mode_tree(sub_tree);
-
-				Self::LineFirstPixelTile {
-					tile_width: *tile_width,
-					tile_height: *tile_height,
+			1 => {
+				TileDimensionOrder::StripeFirst {
 					horizontal_order,
-					vertical_order,
-					sub_generation_mode: Box::new(sub_generation_mode)
+					vertical_order
 				}
 			}
-			GUIModeSettings::StripeFirstPixelTile { tile_width, tile_height, horizontal_order, vertical_order } => {
-				let horizontal_order = Self::index_to_tile_axis_order(*horizontal_order);
-				let vertical_order = Self::index_to_tile_axis_order(*vertical_order);
-
-				let sub_tree = match &tree.sub_tree {
-					None => panic!(),
-					Some(sub_tree) => sub_tree
-				};
-
-				let sub_generation_mode = Self::from_gui_mode_tree(sub_tree);
-
-				Self::StripeFirstPixelTile {
-					tile_width: *tile_width,
-					tile_height: *tile_height,
-					horizontal_order,
-					vertical_order,
-					sub_generation_mode: Box::new(sub_generation_mode)
-				}
+			_ => {
+				TileDimensionOrder::Random
 			}
 		}
 	}
@@ -555,6 +268,24 @@ impl GenerationMode {
 			1 => TileAxisOrder::Reverse,
 			2 => TileAxisOrder::Random,
 			_ => TileAxisOrder::Forward
+		}
+	}
+
+	fn axis_order_range_to_values(start: u32, end: u32, order: TileAxisOrder) -> Vec<u32> {
+		let mut rand = thread_rng();
+
+		match order {
+			TileAxisOrder::Forward => {
+				(start..end).collect()
+			}
+			TileAxisOrder::Reverse => {
+				(start..end).rev().collect()
+			}
+			TileAxisOrder::Random => {
+				let mut values: Vec<u32> = (start..end).collect();
+				values.shuffle(&mut rand);
+				values
+			}
 		}
 	}
 }
