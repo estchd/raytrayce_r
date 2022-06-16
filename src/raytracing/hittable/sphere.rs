@@ -3,7 +3,7 @@ use crate::raytracing::hit_record::HitRecord;
 use crate::raytracing::hittable::Hittable;
 use crate::raytracing::materials::Material;
 use crate::raytracing::ray::Ray;
-use crate::Vec3;
+use crate::raytracing::vector_3d::Vec3;
 
 pub struct Sphere {
 	pub center: Vec3,

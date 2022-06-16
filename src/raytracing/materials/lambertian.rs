@@ -1,7 +1,9 @@
-use crate::{Color, NEAR_ZERO_THRESHOLD, Vec3};
+use crate::raytracing::color::Color;
 use crate::raytracing::hit_record::HitRecord;
 use crate::raytracing::materials::Material;
+use crate::raytracing::NEAR_ZERO_THRESHOLD;
 use crate::raytracing::ray::Ray;
+use crate::raytracing::vector_3d::Vec3;
 
 pub struct Lambertian {
 	pub albedo: Color

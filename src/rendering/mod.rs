@@ -17,7 +17,6 @@ use windows::Win32::Graphics::Dxgi::{DXGI_USAGE_BACK_BUFFER, DXGI_USAGE_DISCARD_
 use windows::Win32::Graphics::Dxgi::{DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH, DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING, DXGI_SWAP_CHAIN_FLAG_DISPLAY_ONLY, DXGI_SWAP_CHAIN_FLAG_FOREGROUND_LAYER, DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT, DXGI_SWAP_CHAIN_FLAG_FULLSCREEN_VIDEO, DXGI_SWAP_CHAIN_FLAG_GDI_COMPATIBLE, DXGI_SWAP_CHAIN_FLAG_HW_PROTECTED, DXGI_SWAP_CHAIN_FLAG_NONPREROTATED, DXGI_SWAP_CHAIN_FLAG_RESTRICT_SHARED_RESOURCE_DRIVER, DXGI_SWAP_CHAIN_FLAG_RESTRICTED_CONTENT, DXGI_SWAP_CHAIN_FLAG_RESTRICTED_TO_ALL_HOLOGRAPHIC_DISPLAYS, DXGI_SWAP_CHAIN_FLAG_YUV_VIDEO};
 use windows::Win32::Graphics::Gdi::HBRUSH;
 use windows::Win32::UI::WindowsAndMessaging::{AdjustWindowRectEx, CreateWindowExW, DefWindowProcW, HCURSOR, HICON, PostQuitMessage, RegisterClassExW, SHOW_WINDOW_CMD, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_DESTROY, WNDCLASS_STYLES, WNDCLASSEXW};
-use crate::{CLASS_NAME, WINDOW_NAME, WINDOW_POSITION, WINDOW_SIZE};
 use crate::rendering::win32::dxgidebug::dump_debug_messages;
 use crate::rendering::win32::errhandlingapi::{get_last_error, set_last_error, WIN32Error};
 use crate::rendering::win32::libloader::get_module_handle_w;
@@ -32,7 +31,7 @@ pub fn create_and_register_window_class() -> Result<u16, windows::core::Error> {
 			WindowClassStyle::VerticalRedraw |
 			WindowClassStyle::HorizontalRedraw;
 
-	let class_name_string = U16CString::from_str(CLASS_NAME).unwrap();
+	let class_name_string = U16CString::from_str("Raytrace Window").unwrap();
 
 	let class_description = WNDCLASSEXW {
 		cbSize: size_of::<WNDCLASSEXW>() as u32,
@@ -86,10 +85,10 @@ pub fn create_and_show_window() -> Result<HWND, windows::core::Error> {
 	set_last_error(WIN32Error::new_ok());
 
 	let mut window_rect = RECT {
-		left: WINDOW_POSITION.0 as i32,
-		top: WINDOW_POSITION.1 as i32,
-		right: WINDOW_POSITION.0 as i32 + WINDOW_SIZE.0 as i32,
-		bottom: WINDOW_POSITION.1 as i32 + WINDOW_SIZE.1 as i32
+		left: 0 as i32,
+		top: 0 as i32,
+		right: 100 as i32,
+		bottom: 100 as i32
 	};
 
 	let result = unsafe {
@@ -107,8 +106,8 @@ pub fn create_and_show_window() -> Result<HWND, windows::core::Error> {
 		return error.map(|_| HWND(0));
 	}
 
-	let class_name = U16CString::from_str(CLASS_NAME).unwrap();
-	let window_name = U16CString::from_str(WINDOW_NAME).unwrap();
+	let class_name = U16CString::from_str("raytrace_class").unwrap();
+	let window_name = U16CString::from_str("Raytrace Window").unwrap();
 
 	let class_name_ptr = class_name.as_ptr();
 	let window_name_ptr = window_name.as_ptr();
@@ -625,7 +624,7 @@ bitflags!{
 	}
 }
 
-pub fn setup_directx_device_and_swapchain(window_handle: HWND) -> Result<(D3D_FEATURE_LEVEL, IDXGISwapChain, ID3D11Device, ID3D11DeviceContext), windows::core::Error> {
+pub fn setup_directx_device_and_swapchain(width: u32, height: u32, window_handle: HWND) -> Result<(D3D_FEATURE_LEVEL, IDXGISwapChain, ID3D11Device, ID3D11DeviceContext), windows::core::Error> {
 	let refresh_rate = DXGI_RATIONAL {
 		Numerator: 1,
 		Denominator: 60
@@ -636,8 +635,8 @@ pub fn setup_directx_device_and_swapchain(window_handle: HWND) -> Result<(D3D_FE
 	let scaling = DXGIScaling::Unspecified;
 
 	let buffer_description = DXGI_MODE_DESC {
-		Width: WINDOW_SIZE.0,
-		Height: WINDOW_SIZE.1,
+		Width: width,
+		Height: height,
 		RefreshRate: refresh_rate,
 		Format: buffer_format.into(),
 		ScanlineOrdering: scanline_order.into(),
@@ -928,15 +927,15 @@ pub fn present(sync_interval: u32, flags: u32, swap_chain: &IDXGISwapChain) -> R
 	}
 }
 
-pub fn create_background_texture(device: &ID3D11Device) -> Result<ID3D11Texture2D, windows::core::Error> {
+pub fn create_background_texture(width: u32, height: u32, device: &ID3D11Device) -> Result<ID3D11Texture2D, windows::core::Error> {
 	let sample_description = DXGI_SAMPLE_DESC {
 		Count: 1,
 		Quality: 0
 	};
 
 	let texture_description = D3D11_TEXTURE2D_DESC {
-		Width: WINDOW_SIZE.0,
-		Height: WINDOW_SIZE.1,
+		Width: width,
+		Height: height,
 		MipLevels: 1,
 		ArraySize: 1,
 		Format: DXGI_FORMAT_R32G32B32A32_FLOAT,

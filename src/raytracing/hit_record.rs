@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use crate::raytracing::materials::Material;
 use crate::raytracing::ray::Ray;
-use crate::Vec3;
+use crate::raytracing::vector_3d::Vec3;
 
 #[derive(Clone)]
 pub struct HitRecord {

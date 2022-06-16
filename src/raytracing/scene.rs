@@ -1,7 +1,7 @@
 use rand::{Rng, thread_rng};
 use std::sync::Arc;
-use crate::{Color, Vec3};
 use crate::raytracing::camera::Camera;
+use crate::raytracing::color::Color;
 use crate::raytracing::hit_record::HitRecord;
 use crate::raytracing::hittable::Hittable;
 use crate::raytracing::hittable::sphere::Sphere;
@@ -9,6 +9,7 @@ use crate::raytracing::materials::dielectric::Dielectric;
 use crate::raytracing::materials::lambertian::Lambertian;
 use crate::raytracing::materials::metal::Metal;
 use crate::raytracing::ray::Ray;
+use crate::raytracing::vector_3d::Vec3;
 
 #[derive(Default, Clone)]
 pub struct RaytracingScene {

@@ -2,8 +2,8 @@ use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use workers_pool::WorkersPool;
 use crate::gui::{GUIModeSettings, GUIModeTree};
+use crate::raytracing::RaytracingWorker;
 use crate::raytracing::work::RaytracingWork;
-use crate::RaytracingWorker;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum TileAxisOrder {

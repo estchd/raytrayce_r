@@ -1,9 +1,10 @@
 use rand::{Rng, thread_rng};
-use crate::{Color, Vec3};
+use crate::raytracing::color::Color;
 use crate::raytracing::hit_record::HitRecord;
 use crate::raytracing::materials::{Material};
 use crate::raytracing::materials::util::{reflect, reflectance, refract};
 use crate::raytracing::ray::Ray;
+use crate::raytracing::vector_3d::Vec3;
 
 pub struct Dielectric {
 	index_of_refraction: f64

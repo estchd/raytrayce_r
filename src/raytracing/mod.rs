@@ -3,7 +3,7 @@ use rand::{Rng, thread_rng};
 use workers_pool::{TaskState, Worker};
 use workers_pool::TaskState::Finished;
 use scene::RaytracingScene;
-use crate::Color;
+use crate::raytracing::color::Color;
 use crate::raytracing::hittable::Hittable;
 use crate::raytracing::ray::Ray;
 use crate::raytracing::work::RaytracingWork;
@@ -178,3 +178,5 @@ fn ray_color(ray: &Ray, scene: &RaytracingScene, depth: usize) -> Color {
 
     color
 }
+
+pub const NEAR_ZERO_THRESHOLD: f64 = f64::EPSILON;

@@ -1,4 +1,4 @@
-use crate::Vec3;
+use crate::raytracing::vector_3d::Vec3;
 
 pub fn refract(direction: Vec3, normal: Vec3, etai_over_etat: f64) -> Vec3 {
 	let cos_theta = f64::min(Vec3::dot(-direction, normal), 1.0);

@@ -1,21 +1,90 @@
+use std::fs::File;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use winit::window::Window;
 use imgui::{Condition, Context, TreeNodeId, Ui};
 use imgui_dx11_renderer::Renderer;
 use imgui_winit_support::{HiDpiMode, WinitPlatform};
 use windows::Win32::Graphics::Direct3D11::ID3D11Device;
 use winit::event::Event;
+use serde_derive::{Serialize, Deserialize};
+use crate::window::Window;
 
+pub const SETTINGS_PATH: &'static str = "./settings.json";
+
+#[derive(Serialize, Deserialize)]
 pub struct GUIState {
     pub completed_count: usize,
     pub commissioned_count: usize,
     pub image_path: String,
-    pub combo_open: bool,
     pub selected: usize,
     pub samples_per_pixel: usize,
     pub max_bounces: usize,
     pub mode_tree: GUIModeTree
+}
+
+impl GUIState {
+    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Self {
+        let file = File::open(path);
+
+        let file = match file {
+            Ok(file) => file,
+            Err(_) => {
+                eprintln!("Error loading settings file, using defaults!");
+                return Self::default();
+            }
+        };
+
+        let settings = serde_json::from_reader::<File, GUIState>(file);
+
+        settings.unwrap_or_else(|_| {
+            eprintln!("Error deserializing settings file, using defaults!");
+            Self::default()
+        })
+    }
+
+    pub fn save_to_file<P: AsRef<Path>>(&self, path: P) {
+        let file = File::create(path);
+
+        let file = match file {
+            Ok(file) => file,
+            Err(_) => {
+                eprintln!("Error creating settings file, settings will not be saved!");
+                return;
+            }
+        };
+
+        let result = serde_json::to_writer(file, self);
+
+        match result {
+            Ok(_) => {}
+            Err(_) => {
+                eprintln!("Error serializing settings file, settings will not be saved!");
+            }
+        }
+    }
+}
+
+impl Default for GUIState {
+    fn default() -> Self {
+        let initial_mode_tree = GUIModeTree {
+            selection: 0,
+            settings: GUIModeSettings::PixelRandom,
+            sub_tree: None
+        };
+
+        let imgui_state = GUIState {
+            completed_count: 0,
+            commissioned_count: 0,
+            image_path: "".to_string(),
+            selected: 0,
+            samples_per_pixel: 100,
+            max_bounces: 10,
+            mode_tree: initial_mode_tree
+        };
+
+        imgui_state
+    }
 }
 
 pub struct GUIResult {
@@ -25,21 +94,21 @@ pub struct GUIResult {
 }
 
 pub struct GUI {
-    window: Arc<Window>,
+    window: Arc<winit::window::Window>,
 	state: GUIState,
     context: Context,
     renderer: Renderer,
     platform: WinitPlatform
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GUIModeTree {
     selection: usize,
     pub settings: GUIModeSettings,
     pub sub_tree: Option<Box<GUIModeTree>>
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum GUIModeSettings {
     PixelRandom,
     Line {
@@ -63,37 +132,25 @@ pub enum GUIModeSettings {
 }
 
 impl GUI {
-    pub fn new(window: Arc<Window>, device: &ID3D11Device) -> Self {
-        let mut imgui_context = Context::create();
+    pub fn new(window: &Window, device: &ID3D11Device) -> Self {
+        let mut context = Context::create();
 
-        let mut imgui_winit_platform = WinitPlatform::init(&mut imgui_context);
-        imgui_winit_platform.attach_window(imgui_context.io_mut(), &window, HiDpiMode::Default);
+        let mut platform = WinitPlatform::init(&mut context);
+        platform.attach_window(context.io_mut(), &window.window, HiDpiMode::Default);
 
-        let imgui_renderer = unsafe { Renderer::new(&mut imgui_context, &device) }.unwrap();
+        let renderer = unsafe { Renderer::new(&mut context, &device) }.unwrap();
 
-        let initial_mode_tree = GUIModeTree {
-            selection: 0,
-            settings: GUIModeSettings::PixelRandom,
-            sub_tree: None
-        };
-        
-        let imgui_state = GUIState {
-            completed_count: 0,
-            commissioned_count: 0,
-            image_path: "".to_string(),
-            combo_open: false,
-            selected: 0,
-            samples_per_pixel: 100,
-            max_bounces: 10,
-            mode_tree: initial_mode_tree
-        };
+        let mut state = GUIState::load_from_file(SETTINGS_PATH);
+
+        state.commissioned_count = 0;
+        state.completed_count = 0;
 
         Self {
-            window,
-            state: imgui_state,
-            context: imgui_context,
-            renderer: imgui_renderer,
-            platform: imgui_winit_platform
+            window: window.window.clone(),
+            state,
+            context,
+            renderer,
+            platform
         }
     }
 
@@ -286,6 +343,14 @@ impl GUI {
             tree.settings = new_settings;
             tree.sub_tree = new_sub_tree;
         }
+    }
+}
+
+impl Drop for GUI {
+    fn drop(&mut self) {
+        self.state.commissioned_count = 0;
+        self.state.completed_count = 0;
+        self.state.save_to_file(SETTINGS_PATH);
     }
 }
 

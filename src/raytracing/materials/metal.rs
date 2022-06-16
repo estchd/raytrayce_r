@@ -1,7 +1,8 @@
-use crate::{Color, Vec3};
+use crate::raytracing::color::Color;
 use crate::raytracing::hit_record::HitRecord;
 use crate::raytracing::materials::{Material, util};
 use crate::raytracing::ray::Ray;
+use crate::raytracing::vector_3d::Vec3;
 
 pub struct Metal {
 	albedo: Color,
