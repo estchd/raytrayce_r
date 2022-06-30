@@ -7,8 +7,9 @@ mod image;
 mod raytracing;
 mod gui;
 mod application;
-mod directx;
 mod window;
+mod directx;
+mod dxgi;
 
 fn main() {
     let app_settings = RaytracingApplicationSettings {

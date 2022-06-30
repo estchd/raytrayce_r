@@ -1,19 +1,17 @@
-use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Instant;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow};
-use workers_pool::WorkersPool;
 use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageW, MSG, PeekMessageW, PM_REMOVE, TranslateMessage, WM_QUIT};
 use std::mem::MaybeUninit;
 use crate::directx::DirectX;
-use crate::gui::{GUI, GUIModeTree};
+use crate::gui::{GUI};
 use crate::image::save_texture_to_path;
-use crate::raytracing::color::Color;
-use crate::raytracing::{RaytracingContext, RaytracingWorker};
+use crate::raytracing::raytracer::cpu_raytracer::CPURaytracer;
+use crate::raytracing::raytracer::{Raytracer, RaytracerSettings};
+use crate::raytracing::raytracer::RaytracerState::Running;
 use crate::raytracing::scene::RaytracingScene;
-use crate::raytracing::texture::{Texture, TextureWrapMode};
-use crate::raytracing::work::generator::{GenerationMode, RaytracingWorkGenerator};
+use crate::raytracing::work::generator::{GenerationMode};
 use crate::rendering::win32::dxgidebug::dump_debug_messages;
 use crate::window::Window;
 
@@ -59,21 +57,21 @@ impl RaytracingApplication {
 
 		let scene = Arc::new(RaytracingScene::create_scene(aspect_ratio));
 
-		let mut texture = Texture::new(
-			NonZeroU32::new(self.width).unwrap(),
-			NonZeroU32::new(self.height).unwrap(),
-			TextureWrapMode::Clamp,
-			Color {
-				r: 0.0,
-				g: 0.0,
-				b: 1.0,
-				a: 0.0
-			}
-		);
-
 		let mut last_frame = Instant::now();
-		let mut current_computation_workers: Option<WorkersPool<RaytracingWorker>> = None;
 		let mut gui = GUI::new(&self.window, &self.directx.device);
+
+		let generation_mode = GenerationMode::from_gui_mode_tree(&gui.state().mode_tree);
+
+		let settings = RaytracerSettings {
+			width: self.width,
+			height: self.height,
+			samples_per_pixel: gui.state().samples_per_pixel,
+			max_bounces: gui.state().max_bounces,
+			generation_mode
+		};
+
+		let mut raytracer: Box<dyn Raytracer> = Box::new(CPURaytracer::new(settings, scene.clone()));
+		gui.update_raytracer_state(&raytracer);
 
 		self.window.event_loop.run(move |event, _window_target, control_flow| {
 			*control_flow = ControlFlow::Poll;
@@ -99,7 +97,9 @@ impl RaytracingApplication {
 				}
 			}
 
-			self.directx.start_frame(&texture);
+			self.directx.start_frame(raytracer.get_current_texture());
+
+			gui.update_raytracer_state(&raytracer);
 
 			let imgui_result = gui.draw();
 
@@ -108,28 +108,33 @@ impl RaytracingApplication {
 				let max_bounces = gui.state().max_bounces;
 
 				let gui_state_mut = gui.state_mut();
-				let commissioned_count = &mut gui_state_mut.commissioned_count;
 				let mode_tree = &mut gui_state_mut.mode_tree;
 
-				start_rendering(&mut texture, commissioned_count, self.width, self.height, samples_per_pixel, max_bounces, scene.clone(), mode_tree, &mut current_computation_workers);
+				let generation_mode = GenerationMode::from_gui_mode_tree(mode_tree);
 
-				gui.state_mut().completed_count = 0;
+				let settings = RaytracerSettings {
+					width: self.width,
+					height: self.height,
+					samples_per_pixel,
+					max_bounces,
+					generation_mode
+				};
+
+				raytracer.change_settings(settings);
+				raytracer.set_scene(scene.clone());
+				raytracer.start_rendering();
 			}
 
 			if imgui_result.render_stop_button_clicked {
-				stop_rendering(&mut current_computation_workers);
+				raytracer.stop_rendering();
 			}
 
 			if imgui_result.export_button_clicked {
-				save_texture_to_path(&gui.state().image_path, &texture).unwrap();
+				save_texture_to_path(&gui.state().image_path, raytracer.get_current_texture()).unwrap();
 			}
 
-			if let Some(workers) = &mut current_computation_workers {
-				update_texture(&mut gui.state_mut().completed_count, &mut texture, workers);
-
-				if gui.state().completed_count >= gui.state().commissioned_count {
-					stop_rendering(&mut current_computation_workers);
-				}
+			if let Running { .. } = raytracer.get_state() {
+				raytracer.update();
 			}
 
 			self.directx.end_frame();
@@ -175,46 +180,4 @@ fn peek_message() -> Option<MSG> {
     };
 
     Some(message)
-}
-
-fn start_rendering(texture: &mut Texture, commissioned_count: &mut usize, width: u32, height: u32, samples_per_pixel: usize, max_bounces: usize, scene: Arc<RaytracingScene>, gui_mode_tree: &GUIModeTree, workers: &mut Option<WorkersPool<RaytracingWorker>>) {
-    *workers = None;
-
-    texture.clear(Color::create(0.0,0.0,0.0,1.0));
-
-    let context = RaytracingContext {
-        image_width: width,
-        image_height: height,
-        samples_per_pixel,
-        max_bounces,
-        scene
-    };
-
-    let mut new_workers = WorkersPool::new(context);
-
-    let generation_mode = GenerationMode::from_gui_mode_tree(gui_mode_tree);
-
-    let generator = RaytracingWorkGenerator {
-        width,
-        height,
-        generation_mode
-    };
-
-    generator.generate(&mut new_workers).unwrap();
-
-    *commissioned_count = width as usize * height as usize;
-    *workers = Some(new_workers);
-}
-
-fn stop_rendering(workers: &mut Option<WorkersPool<RaytracingWorker>>) {
-    *workers = None;
-}
-
-fn update_texture(completed_count: &mut usize, texture: &mut Texture, workers: &mut WorkersPool<RaytracingWorker>) {
-    let results = workers.collect_finished().unwrap();
-
-    for result in results {
-        texture.set_pixel(result.x, result.y, result.pixel_color);
-        *completed_count = *completed_count + 1;
-    }
 }

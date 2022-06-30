@@ -20,6 +20,7 @@ pub mod hittable;
 pub mod hit_record;
 pub mod materials;
 pub mod work;
+pub mod raytracer;
 
 #[derive(Default, Clone)]
 pub struct RaytracingContext {

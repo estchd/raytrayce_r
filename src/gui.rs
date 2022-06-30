@@ -8,14 +8,14 @@ use imgui_winit_support::{HiDpiMode, WinitPlatform};
 use windows::Win32::Graphics::Direct3D11::ID3D11Device;
 use winit::event::Event;
 use serde_derive::{Serialize, Deserialize};
+use crate::raytracing::raytracer::{Raytracer, RaytracerState};
 use crate::window::Window;
 
 pub const SETTINGS_PATH: &'static str = "./settings.json";
 
 #[derive(Serialize, Deserialize)]
 pub struct GUIState {
-    pub completed_count: usize,
-    pub commissioned_count: usize,
+    pub raytracer_state: RaytracerState,
     pub image_path: String,
     pub selected: usize,
     pub samples_per_pixel: usize,
@@ -74,8 +74,7 @@ impl Default for GUIState {
         };
 
         let imgui_state = GUIState {
-            completed_count: 0,
-            commissioned_count: 0,
+            raytracer_state: RaytracerState::Created,
             image_path: "".to_string(),
             selected: 0,
             samples_per_pixel: 100,
@@ -140,10 +139,7 @@ impl GUI {
 
         let renderer = unsafe { Renderer::new(&mut context, &device) }.unwrap();
 
-        let mut state = GUIState::load_from_file(SETTINGS_PATH);
-
-        state.commissioned_count = 0;
-        state.completed_count = 0;
+        let state = GUIState::load_from_file(SETTINGS_PATH);
 
         Self {
             window: window.window.clone(),
@@ -156,6 +152,12 @@ impl GUI {
 
     pub fn update_delta(&mut self, delta: Duration) {
         self.context.io_mut().update_delta_time(delta);
+    }
+
+    pub fn update_raytracer_state(&mut self, raytracer: &Box<dyn Raytracer>) {
+        let state = raytracer.get_state();
+
+        self.state.raytracer_state = state;
     }
 
     pub fn handle_event(&mut self, event: Event<()>) {
@@ -217,14 +219,25 @@ impl GUI {
                 render_stop_button_clicked = ui.button("Stop Render");
 
                 ui.text("Rendering:");
-                if state.completed_count >= state.commissioned_count {
-                    ui.text("Done!");
-                }
-                else {
-                    let percentage = (state.completed_count as f32 / state.commissioned_count as f32) * 100.0;
-                    let text = format!("{}/{} : {}%", state.completed_count, state.commissioned_count, percentage);
+                match state.raytracer_state {
+                    RaytracerState::Created => {
+                        ui.text("Not started...");
+                    }
+                    RaytracerState::Running { commissioned, completed } => {
+                        let percentage = (completed as f32 / commissioned as f32) * 100.0;
+                        let text = format!("{}/{} : {}%", completed, commissioned, percentage);
 
-                    ui.text(text);
+                        ui.text(text);
+                    }
+                    RaytracerState::Paused { .. } => {
+                        ui.text("Paused...");
+                    }
+                    RaytracerState::Finished { .. } => {
+                        ui.text("Done!");
+                    }
+                    RaytracerState::Stopped => {
+                        ui.text("Aborted!");
+                    }
                 }
             });
 
@@ -348,8 +361,6 @@ impl GUI {
 
 impl Drop for GUI {
     fn drop(&mut self) {
-        self.state.commissioned_count = 0;
-        self.state.completed_count = 0;
         self.state.save_to_file(SETTINGS_PATH);
     }
 }

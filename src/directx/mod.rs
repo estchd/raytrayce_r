@@ -1,3 +1,6 @@
+pub mod device_context;
+pub mod viewport;
+
 use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Direct3D11::{D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_ELEMENT_DESC, D3D11_INPUT_PER_VERTEX_DATA, D3D11_VIEWPORT, ID3D11Device, ID3D11DeviceContext, ID3D11Resource};
